@@ -19,6 +19,8 @@ lean_lib UnicodeData
 
 lean_exe lookup
 
+lean_exe leanTables
+
 lean_exe makeTables
 
 @[test_driver]

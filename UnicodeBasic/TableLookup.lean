@@ -5,6 +5,20 @@ Released under Apache 2.0 license as described in the file LICENSE.
 
 import UnicodeBasic.CharacterDatabase
 import UnicodeBasic.Hangul
+import UnicodeBasic.Table.Alphabetic
+import UnicodeBasic.Table.BidiClass
+import UnicodeBasic.Table.BidiMirrored
+import UnicodeBasic.Table.CanonicalCombiningClass
+import UnicodeBasic.Table.CanonicalDecompositionMapping
+import UnicodeBasic.Table.Cased
+import UnicodeBasic.Table.GeneralCategory
+import UnicodeBasic.Table.Lowercase
+import UnicodeBasic.Table.Math
+import UnicodeBasic.Table.NumericValue
+import UnicodeBasic.Table.Titlecase
+import UnicodeBasic.Table.Uppercase
+import UnicodeBasic.Table.Util
+import UnicodeBasic.Table.WhiteSpace
 import UnicodeBasic.Types
 
 namespace Unicode
@@ -20,62 +34,23 @@ private partial def find (c : UInt32) (t : USize → UInt32) (lo hi : USize) : U
   else
     find c t mid hi
 
-/-- Parse a simple table -/
-private def parseTable (s : String) (f : UInt32 → Array Substring → α) : Thunk <| Array (UInt32 × α) := Id.run do
-  let mut r := #[]
-  let mut stream := UCDStream.ofString s
-  for record in stream do
-    let start := ofHexString! record[0]!
-    let val := f start record[1:]
-    r := r.push (start, val)
-  return r
-
-/-- Parse a range compressed data table -/
-private def parseDataTable (s : String) (f : UInt32 → UInt32 → Array Substring → α) : Thunk <| Array (UInt32 × UInt32 × α) := Id.run do
-  let mut r := #[]
-  let mut stream := UCDStream.ofString s
-  for record in stream do
-    let start := ofHexString! record[0]!
-    let stop := if record[1]!.isEmpty then start else ofHexString! record[1]!
-    let val := f start stop record[2:]
-    r := r.push (start, stop, val)
-  return r
-
-/-- Parse a range compressed property table -/
-private def parsePropTable (s : String) : Thunk <| Array (UInt32 × UInt32) := Id.run do
-  let mut r := #[]
-  let mut stream := UCDStream.ofString s
-  for record in stream do
-    let start := ofHexString! record[0]!
-    let stop := if record[1]!.isEmpty then start else ofHexString! record[1]!
-    r := r.push (start, stop)
-  return r
-
 /-- Get bidirectional class using lookup table
 
   Unicode property: `Bidi_Class` -/
 def lookupBidiClass (c : UInt32) : BidiClass :=
-  let table := table.get
+  let table := Table.BidiClass
   if c < table[0]!.1 then .BN else
     match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
     | (_, v, bc) => if c ≤ v then bc else .BN
-where
-  str : String := include_str "../data/table/Bidi_Class.txt"
-  table : Thunk <| Array (UInt32 × UInt32 × BidiClass) :=
-    parseDataTable str fun _ _ x => BidiClass.ofAbbrev! x[0]!
 
 /-- Get canonical combining class using lookup table
 
   Unicode property: `Canonical_Combining_Class` -/
 def lookupCanonicalCombiningClass (c : UInt32) : Nat :=
-  let t := table.get
-  if c < t[0]!.1 then 0 else
-    match t[find c (fun i => t[i]!.1) 0 t.size.toUSize]! with
+  let table := Table.CanonicalCombiningClass
+  if c < table[0]!.1 then 0 else
+    match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
     | (_, v, n) => if c ≤ v then n else 0
-where
-  str : String := include_str "../data/table/Canonical_Combining_Class.txt"
-  table : Thunk <| Array (UInt32 × UInt32 × Nat) :=
-    parseDataTable str fun _ _ x => (x.get! 0).toNat?.get!
 
 /-- Get canonical decomposition mapping using lookup table
 
@@ -90,14 +65,10 @@ def lookupCanonicalDecompositionMapping (c : UInt32) : List UInt32 :=
     | some t => [s.getLChar.val, s.getVChar.val, t.val]
     | none => [s.getLChar.val, s.getVChar.val]
   else
-    let table := table.get
+    let table := Table.CanonicalDecompositionMapping
     if c < table[0]!.1 then [c] else
       match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
-      | (v, l) => if c == v then l else [c]
-where
-  str : String := include_str "../data/table/Canonical_Decomposition_Mapping.txt"
-  table : Thunk <| Array (UInt32 × List UInt32) :=
-    parseTable str fun _ x => (x.map ofHexString!).toList
+      | (v, l) => if c == v then l.map Char.val else [c]
 
 /-- Get simple case mappings of a code point using lookup table
 
@@ -172,7 +143,7 @@ where
 
   Unicode property: `General_Category` -/
 def lookupGeneralCategory (c : UInt32) : GeneralCategory :=
-  let table := table.get
+  let table := Table.GeneralCategory
   if c < table[0]!.1 then .Cn else
     match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
     | (_, v, gc) =>
@@ -185,10 +156,6 @@ def lookupGeneralCategory (c : UInt32) : GeneralCategory :=
           if c &&& 1 == 0 then .Pi else .Pf
         else gc
       else GeneralCategory.Cn
-where
-  str : String := include_str "../data/table/General_Category.txt"
-  table : Thunk <| Array (UInt32 × UInt32 × GeneralCategory) :=
-    parseDataTable str fun _ _ x => GeneralCategory.ofAbbrev! x[0]!
 
 /-- Get name of a code point using lookup table
 
@@ -241,7 +208,7 @@ where
     `Numeric_Type`
     `Numeric_Value` -/
 def lookupNumericValue (c : UInt32) : Option NumericType :=
-  let table := table.get
+  let table := Table.NumericalValue
   if c < table[0]!.1 then none else
     match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
     | (c₀, _, .decimal _) =>
@@ -261,29 +228,6 @@ def lookupNumericValue (c : UInt32) : Option NumericType :=
         none
     | ⟨v, _, n⟩ =>
       if c == v then some n else none
-where
-  str : String := include_str "../data/table/Numeric_Value.txt"
-  table : Thunk <| Array (UInt32 × UInt32 × NumericType) :=
-    parseDataTable str fun _ _ a =>
-      let s := a[0]!.toString
-      if s == "decimal" then
-        .decimal 0
-      else if "digit".isPrefixOf s then
-        let d := (s.get ⟨6⟩).toNat
-        if h : d - '0'.toNat < 10 then
-          if d < '0'.toNat then
-            panic! s!"invalid table data {d} {s}"
-          else
-            .digit ⟨d - '0'.toNat, h⟩
-        else
-          panic! s!"invalid table data {d} {s}"
-      else if "numeric".isPrefixOf s then
-        let s := s.drop 8
-        match String.splitOn s "/" with
-        | [n] => .numeric n.toInt! none
-        | [n, d] => .numeric n.toInt! (some d.toNat!)
-        | _ => panic! "invalid table data"
-      else .numeric (-4) none
 
 /-! Properties -/
 
@@ -291,97 +235,73 @@ where
 
   Unicode property: `Alphabetic` -/
 def lookupAlphabetic (c : UInt32) : Bool :=
-  let table := table.get
+  let table := Table.Alphabetic
   if c < table[0]!.1 then false else
     match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
     | (_, v) => c ≤ v
-where
-  str : String := include_str "../data/table/Alphabetic.txt"
-  table : Thunk <| Array (UInt32 × UInt32) := parsePropTable str
 
 /-- Check if code point is bidi mirrored using lookup table
 
   Unicode property: `Bidi_Mirrored`
 -/
 def lookupBidiMirrored (c : UInt32) : Bool :=
-  let table := table.get
+  let table := Table.BidiMirrored
   if c < table[0]!.1 then false else
     match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
     | (_, v) => c ≤ v
-where
-  str : String := include_str "../data/table/Bidi_Mirrored.txt"
-  table : Thunk <| Array (UInt32 × UInt32) := parsePropTable str
 
 /-- Check if code point is a cased letter using lookup table
 
   Unicode property: `Cased` -/
 def lookupCased (c : UInt32 ) : Bool :=
-  let table := table.get
+  let table := Table.Cased
   if c < table[0]!.1 then false else
     match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
     | (_, v) => c ≤ v
-where
-  str : String := include_str "../data/table/Cased.txt"
-  table : Thunk <| Array (UInt32 × UInt32) := parsePropTable str
 
 /-- Check if code point is a lowercase letter using lookup table
 
   Unicode property: `Lowercase` -/
 def lookupLowercase (c : UInt32) : Bool :=
-  let table := table.get
+  let table := Table.Lowercase
   if c < table[0]!.1 then false else
     match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
     | (_, v) => c ≤ v
-where
-  str : String := include_str "../data/table/Lowercase.txt"
-  table : Thunk <| Array (UInt32 × UInt32) := parsePropTable str
 
 /-- Check if code point is a mathematical symbol using lookup table
 
   Unicode property: `Math` -/
 def lookupMath (c : UInt32) : Bool :=
-  let table := table.get
+  let table := Table.Math
   if c < table[0]!.1 then false else
     match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
     | (_, v) => c ≤ v
-where
-  str : String := include_str "../data/table/Math.txt"
-  table : Thunk <| Array (UInt32 × UInt32) := parsePropTable str
 
 /-- Check if code point is a titlecase letter using lookup table
 
   Unicode property: `Titlecase` -/
 def lookupTitlecase (c : UInt32) : Bool :=
-  let table := table.get
+  let table := Table.Titlecase
   if c < table[0]!.1 then false else
     match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
     | (_, v) => c ≤ v
-where
-  str : String := include_str "../data/table/Titlecase.txt"
-  table : Thunk <| Array (UInt32 × UInt32) := parsePropTable str
 
 /-- Check if code point is a uppercase letter using lookup table
 
   Unicode property: `Uppercase` -/
 def lookupUppercase (c : UInt32) : Bool :=
-  let table := table.get
+  let table := Table.Uppercase
   if c < table[0]!.1 then false else
     match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
     | (_, v) => c ≤ v
-where
-  str : String := include_str "../data/table/Uppercase.txt"
-  table : Thunk <| Array (UInt32 × UInt32) := parsePropTable str
 
 /-- Check if code point is a white space character using lookup table
 
   Unicode property: `White_Space` -/
 def lookupWhiteSpace (c : UInt32) : Bool :=
-  let table := table.get
+  let table := Table.WhiteSpace
   if c < table[0]!.1 then false else
     match table[find c (fun i => table[i]!.1) 0 table.size.toUSize]! with
     | (_, v) => c ≤ v
-where
-  str : String := include_str "../data/table/White_Space.txt"
-  table : Thunk <| Array (UInt32 × UInt32) := parsePropTable str
 
 end Unicode
